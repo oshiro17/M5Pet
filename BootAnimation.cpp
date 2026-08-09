@@ -4,17 +4,23 @@
 
 // Length of each phase, indexed by Phase. Total ~3.6 s.
 static const uint16_t PHASE_MS[] = {
-  /* APPLE_IN */ 350,
-  /* ENTER    */ 620,
-  /* APPROACH */ 240,
-  /* MOUTH    */ 200,
-  /* BITE     */ 180,
-  /* CHEW     */ 720,
-  /* HAPPY    */ 300,
-  /* EXIT     */ 420,
-  /* GLOW     */ 260,
-  /* FADE     */ 280,
+  /* APPLE_IN    */ 300,
+  /* ENTER       */ 520,
+  /* APPROACH    */ 240,
+  /* MOUTH       */ 220,
+  /* BITE        */ 240,
+  /* CHEW        */ 480,
+  /* HAPPY       */ 220,
+  /* INHALE_OPEN */ 260,
+  /* INHALE      */ 520,
+  /* GULP        */ 260,
+  /* EXIT        */ 380,
+  /* FADE        */ 240,
 };
+
+// Centre of the apple where it sits before it gets eaten.
+static const float APPLE_HOME_X = APPLE_ORIGIN_X + APPLE_BMP_W * 0.5f;
+static const float APPLE_HOME_Y = APPLE_ORIGIN_Y + APPLE_BMP_H * 0.5f;
 
 // ---------------------------------------------------------------------------
 // Apple
@@ -54,85 +60,173 @@ static void drawApple(M5Canvas& cv, int ox, int oy, uint16_t color, float biteR)
   }
 }
 
+// Same mask, but drawn through an inverse rotate/scale so the apple can spiral
+// into the mouth. Inverse mapping means no gaps, and runs are still batched
+// into horizontal lines.
+static void drawAppleXf(M5Canvas& cv, float cx, float cy, float scale,
+                        float ang, uint16_t color, float biteR) {
+  if (scale <= 0.03f) return;
+  const float hw = APPLE_BMP_W * 0.5f, hh = APPLE_BMP_H * 0.5f;
+  const float reach = sqrtf(hw * hw + hh * hh) * scale + 2.0f;
+  const float ca = cosf(ang) / scale, sa = sinf(ang) / scale;
+
+  int y0 = (int)floorf(cy - reach), y1 = (int)ceilf(cy + reach);
+  int x0 = (int)floorf(cx - reach), x1 = (int)ceilf(cx + reach);
+  if (y0 < 0) y0 = 0;
+  if (x0 < 0) x0 = 0;
+  if (y1 > SCREEN_H - 1) y1 = SCREEN_H - 1;
+  if (x1 > SCREEN_W - 1) x1 = SCREEN_W - 1;
+
+  for (int dy = y0; dy <= y1; ++dy) {
+    const float uy = dy - cy;
+    int runStart = -1;
+    for (int dx = x0; dx <= x1 + 1; ++dx) {
+      bool on = false;
+      if (dx <= x1) {
+        const float ux = dx - cx;
+        const float fx = ca * ux + sa * uy + hw;
+        const float fy = -sa * ux + ca * uy + hh;
+        if (fx >= 0.0f && fy >= 0.0f) {
+          const int ix = (int)fx, iy = (int)fy;
+          if (ix < APPLE_BMP_W && iy < APPLE_BMP_H) {
+            on = (APPLE_BMP[iy * APPLE_BMP_STRIDE + (ix >> 3)] >> (7 - (ix & 7))) & 1;
+            if (on && biteR > 0.5f) {
+              const float bx = (ix + 0.5f) - APPLE_BITE_CX;
+              const float by = (iy + 0.5f) - APPLE_BITE_CY;
+              if (bx * bx + by * by <= biteR * biteR) on = false;
+            }
+          }
+        }
+      }
+      if (on) {
+        if (runStart < 0) runStart = dx;
+      } else if (runStart >= 0) {
+        cv.drawFastHLine(runStart, dy, dx - runStart, color);
+        runStart = -1;
+      }
+    }
+  }
+}
+
+// The pale blue streaks that fly into the mouth while it inhales.
+static void drawSuction(M5Canvas& cv, float mx, float my, float f,
+                        float t, float strength) {
+  for (int i = 0; i < 4; ++i) {
+    float ph = t * 2.2f + i * 0.27f;
+    ph -= floorf(ph);
+    const float dist = 66.0f * (1.0f - ph);
+    const float spread = (i - 1.5f) * 15.0f * (0.35f + 0.65f * ph);
+    const int xa = (int)lroundf(mx + f * (dist + 16.0f));
+    const int xb = (int)lroundf(mx + f * dist);
+    const int ya = (int)lroundf(my + spread);
+    const int yb = (int)lroundf(my + spread * 0.45f);
+    const uint16_t c = mixColor(COL_BG, COL_SUCTION,
+                                strength * (0.30f + 0.70f * ph));
+    cv.drawLine(xa, ya, xb, yb, c);
+    cv.drawLine(xa, ya + 1, xb, yb + 1, c);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Character (pink, round, big vertical eyes, red feet)
 // ---------------------------------------------------------------------------
 static inline int ri(float v) { return (int)lroundf(v); }
 static inline int rr(float v) { const int i = (int)lroundf(v); return i < 1 ? 1 : i; }
 
+// Drawn in three-quarter profile: both eyes, the blush and the mouth crowd
+// onto the leading side of the face, so the character reads as looking at --
+// and biting into -- whatever is in front of it. face = -1 faces left.
 static void drawCharacter(M5Canvas& cv, float x, float y, float squash,
-                          float mouth, float puff, float walk, uint8_t expr) {
+                          float mouth, float puff, float walk, uint8_t expr,
+                          int face) {
   const float rx = CHAR_RADIUS * (1.0f + squash);
   const float ry = CHAR_RADIUS * (1.0f - squash);
+  const float f  = (float)face;
 
-  // --- feet: two red ovals that swap back and forth while moving
   const float step = sinf(walk * TWO_PI);
-  cv.fillEllipse(ri(x - rx * 0.60f + step * 4.0f), ri(y + ry * 0.82f + 4),
-                 rr(11), rr(7), COL_CHAR_FOOT);
-  cv.fillEllipse(ri(x + rx * 0.50f - step * 4.0f), ri(y + ry * 0.86f + 4),
-                 rr(12), rr(7), COL_CHAR_FOOT);
 
-  // --- stubby arms, behind the body
-  cv.fillEllipse(ri(x - rx * 0.95f), ri(y - ry * 0.05f), rr(8), rr(10), COL_CHAR_BODY);
-  cv.fillEllipse(ri(x + rx * 0.95f), ri(y - ry * 0.10f), rr(8), rr(10), COL_CHAR_BODY);
+  // --- far foot: drawn first, so the body hides all but the heel
+  cv.fillEllipse(ri(x - f * rx * 0.38f - step * 3.0f), ri(y + ry * 0.90f),
+                 rr(rx * 0.36f), rr(ry * 0.22f), COL_CHAR_FOOT_DK);
 
   // --- body
   cv.fillEllipse(ri(x), ri(y), rr(rx), rr(ry), COL_CHAR_BODY);
 
-  // shaded underside: same ellipse, clipped to the bottom third
-  const int bodyTop = ri(y - ry), bodyBot = ri(y + ry);
-  const int shadeTop = ri(y + ry * 0.34f);
-  if (bodyBot > shadeTop) {
-    cv.setClipRect(ri(x - rx) - 1, shadeTop, rr(rx * 2 + 2), bodyBot - shadeTop + 1);
-    cv.fillEllipse(ri(x), ri(y), rr(rx), rr(ry), COL_CHAR_SHADE);
-    cv.clearClipRect();
-  }
-  // soft highlight, upper left
-  cv.fillEllipse(ri(x - rx * 0.42f), ri(y - ry * 0.50f),
-                 rr(rx * 0.26f), rr(ry * 0.17f), COL_CHAR_LIGHT);
+  // shaded underside: an ellipse that sits wholly inside the body, so the
+  // boundary is a curve rather than the straight edge a clip rect would give
+  cv.fillEllipse(ri(x), ri(y + ry * 0.56f),
+                 rr(rx * 0.86f), rr(ry * 0.40f), COL_CHAR_SHADE);
 
-  // --- cheeks; they swell while chewing
-  const float cheekRx = 5.0f + puff * 3.5f;
-  cv.fillEllipse(ri(x - rx * 0.58f), ri(y + ry * 0.14f),
-                 rr(cheekRx), rr(cheekRx * 0.62f), COL_CHEEK);
-  cv.fillEllipse(ri(x + rx * 0.58f), ri(y + ry * 0.14f),
-                 rr(cheekRx), rr(cheekRx * 0.62f), COL_CHEEK);
+  // soft sheen on the crown. Kept small, low-contrast and near the top: out on
+  // the flank it breaks the silhouette and reads as a second arm.
+  cv.fillEllipse(ri(x - f * rx * 0.16f), ri(y - ry * 0.66f),
+                 rr(rx * 0.17f), rr(ry * 0.09f), COL_CHAR_LIGHT);
 
-  // --- eyes
-  const float ex = rx * 0.30f, ey = y - ry * 0.18f;
+  // --- near foot: big, planted forward, overlapping the body
+  cv.fillEllipse(ri(x + f * rx * 0.42f + step * 3.0f), ri(y + ry * 0.98f),
+                 rr(rx * 0.40f), rr(ry * 0.24f), COL_CHAR_FOOT);
+
+  // --- near arm only. Drawing the far arm as well is exactly what collapses a
+  //     profile back into a front view. It also swings back behind the body as
+  //     the mouth opens, which keeps it clear of the bite and reads as a
+  //     wind-up.
+  const float armOut = 1.0f - mouth * 0.85f;
+  cv.fillEllipse(ri(x + f * rx * (0.30f + 0.72f * armOut)),
+                 ri(y + ry * (0.50f - 0.10f * armOut)),
+                 rr(rx * 0.25f), rr(ry * 0.32f), COL_CHAR_BODY);
+
+  // --- blush on the visible cheek; it swells while chewing
+  const float cheekRx = 5.5f + puff * 4.0f;
+  cv.fillEllipse(ri(x + f * rx * 0.02f), ri(y + ry * 0.08f),
+                 rr(cheekRx), rr(cheekRx * 0.58f), COL_CHEEK);
+
+  // --- eyes, both pushed towards the leading side. The far one is narrower,
+  //     which is what makes the head read as turned rather than flat-on.
+  // Past mouth = 1 the character is inhaling, not biting: the mouth takes over
+  // the face, so the eyes retreat to the crown and shrink to make room.
+  const float wide  = clampf(mouth - 1.0f, 0.0f, 1.0f);
+  const float eNear = f * rx * 0.10f;   // closer to us
+  const float eFar  = f * rx * 0.56f;   // further round the cheek
+  const float ey    = y - ry * (0.30f + 0.32f * wide);
+  const float eScale = 1.0f - 0.24f * wide;
   if (expr == /*EXPR_HAPPY*/ 2) {
-    // satisfied: two upward arcs
     for (int t = 0; t < 3; ++t) {
-      for (int s = -1; s <= 1; s += 2) {
-        const int cx = ri(x + s * ex);
-        cv.drawLine(cx - 6, ri(ey) + 3 + t, cx, ri(ey) - 4 + t, COL_EYE_NAVY);
-        cv.drawLine(cx, ri(ey) - 4 + t, cx + 6, ri(ey) + 3 + t, COL_EYE_NAVY);
+      const int cxs[2] = { ri(x + eNear), ri(x + eFar) };
+      for (int i = 0; i < 2; ++i) {
+        const int cx = cxs[i];
+        cv.drawLine(cx - 5, ri(ey) + 3 + t, cx, ri(ey) - 4 + t, COL_EYE_NAVY);
+        cv.drawLine(cx, ri(ey) - 4 + t, cx + 5, ri(ey) + 3 + t, COL_EYE_NAVY);
       }
     }
   } else {
-    for (int s = -1; s <= 1; s += 2) {
-      const int cx = ri(x + s * ex), cy = ri(ey);
-      const int erx = rr(4.5f), ery = rr(8.5f);
+    const float offs[2]   = { eNear, eFar };
+    const float narrow[2] = { 1.0f, 0.68f };
+    for (int i = 0; i < 2; ++i) {
+      const int cx = ri(x + offs[i]), cy = ri(ey);
+      const int erx = rr(5.2f * narrow[i] * eScale), ery = rr(10.0f * eScale);
+      // three bands, as in the reference: white cap, navy middle, blue floor
       cv.fillEllipse(cx, cy, erx, ery, COL_EYE_NAVY);
-      // blue lower half
-      cv.setClipRect(cx - erx, cy + ery / 4, erx * 2 + 1, ery + 1);
-      cv.fillEllipse(cx, cy, erx, ery, COL_EYE_BLUE);
+      cv.setClipRect(cx - erx, cy + rr(ery * 0.28f), erx * 2 + 1, ery + 1);
+      cv.fillEllipse(cx, cy, rr(erx * 0.78f), rr(ery * 0.88f), COL_EYE_BLUE);
       cv.clearClipRect();
-      // white glint near the top
-      cv.fillEllipse(cx, cy - ery / 2, rr(2), rr(3), COL_WHITE);
+      cv.fillEllipse(cx, ri(cy - ery * 0.48f),
+                     rr(erx * 0.62f), rr(ery * 0.26f), COL_WHITE);
     }
   }
 
-  // --- mouth
+  // --- mouth, on the leading edge of the face so it meets the apple
+  const float mx = x + f * rx * (0.50f - 0.14f * wide);
+  const float my = y + ry * (0.26f + 0.06f * wide);
   if (mouth > 0.03f) {
-    const float mw = 4.0f + mouth * 10.0f;
-    const float mh = 3.0f + mouth * 12.0f;
-    const int my = ri(y + ry * 0.30f);
-    cv.fillEllipse(ri(x), my, rr(mw), rr(mh), COL_MOUTH_DK);
-    cv.fillEllipse(ri(x), my + rr(mh * 0.35f), rr(mw * 0.62f), rr(mh * 0.38f), COL_MOUTH);
-  } else if (expr == /*EXPR_HAPPY*/ 2) {
-    const int my = ri(y + ry * 0.30f);
-    cv.fillEllipse(ri(x), my, rr(5), rr(3), COL_MOUTH);
+    const float mrx = 3.0f + mouth * rx * 0.36f;
+    const float mry = 3.0f + mouth * ry * 0.29f;
+    cv.fillEllipse(ri(mx), ri(my), rr(mrx), rr(mry), COL_MOUTH_DK);
+    // throat: the tan oval that fills the bottom of a wide-open mouth
+    cv.fillEllipse(ri(mx + f * mrx * 0.10f), ri(my + mry * 0.34f),
+                   rr(mrx * 0.66f), rr(mry * 0.42f), COL_MOUTH_IN);
+  } else {
+    // resting: the small oval mouth from the reference
+    cv.fillEllipse(ri(mx), ri(my), rr(3), rr(4), COL_MOUTH_DK);
   }
 }
 
@@ -146,15 +240,27 @@ void BootAnimation::begin(uint32_t now) {
   _currentY = _targetY = CHAR_GROUND_Y;
   _biteR = 0.0f;
   _appleFade = 0.0f;
-  _appleGlow = 0.0f;
-  _mouth = _puff = _squash = _hopY = _walk = 0.0f;
+  _appleScale = 1.0f;
+  _appleAngle = 0.0f;
+  _appleCX = APPLE_HOME_X;
+  _appleCY = APPLE_HOME_Y;
+  _appleGone = false;
+  _mouth = _puff = _squash = _hopY = _walk = _suction = 0.0f;
   _expr = EXPR_NORMAL;
 }
 
 void BootAnimation::skip() {
   _phase = PH_DONE;
-  _biteR = APPLE_BITE_R;
+  _appleGone = true;
   _appleFade = 0.0f;
+}
+
+// Where the mouth sits on screen -- the apple is inhaled towards this point.
+float BootAnimation::mouthX() const {
+  return _currentX + _face * CHAR_RADIUS * 0.36f;
+}
+float BootAnimation::mouthY() const {
+  return _currentY + _hopY + CHAR_RADIUS * 0.36f;
 }
 
 void BootAnimation::enterPhase(Phase p, uint32_t now) {
@@ -185,12 +291,16 @@ void BootAnimation::update(uint32_t now) {
   _squash = 0.0f;
   _hopY = 0.0f;
   _expr = EXPR_NORMAL;
+  _mouth = 0.0f;
+  _suction = 0.0f;
+  _smoothK = 0.22f;
+  _animT = now * 0.001f;
+  _face = -1;                     // faces the apple for everything but the exit
 
   switch (_phase) {
     case PH_APPLE_IN:
       _appleFade = easeOutCubic(p);
       _targetX = CHAR_X_START;
-      _mouth = 0.0f;
       break;
 
     case PH_ENTER: {
@@ -205,7 +315,7 @@ void BootAnimation::update(uint32_t now) {
     }
 
     case PH_APPROACH: {
-      _targetX = CHAR_X_BITE;
+      _targetX = CHAR_X_MOUTH;
       const float hop = fabsf(sinf(p * PI));
       _hopY = -hop * 6.0f;
       _walk = 3.0f + p;
@@ -213,8 +323,8 @@ void BootAnimation::update(uint32_t now) {
     }
 
     case PH_MOUTH:
-      _targetX = CHAR_X_BITE;
-      _targetY = CHAR_BITE_Y;         // lunge up to the bite height
+      _targetX = CHAR_X_MOUTH;
+      _targetY = CHAR_BITE_Y;         // rise to the height of the bite
       _mouth = easeOutCubic(p);
       _expr = EXPR_EATING;
       break;
@@ -222,17 +332,19 @@ void BootAnimation::update(uint32_t now) {
     case PH_BITE: {
       _targetY = CHAR_BITE_Y;
       _biteR = APPLE_BITE_R * easeOutCubic(p);
-      _mouth = 1.0f - 0.6f * p;
+      _mouth = 1.0f - easeOutCubic(p);            // chomps shut on the apple
       _expr = EXPR_EATING;
-      // short lunge into the apple, then back
-      _targetX = CHAR_X_BITE - 6.0f * sinf(p * PI);
+      // drive the head into the apple and back out again
+      _smoothK = 0.45f;
+      _targetX = CHAR_X_MOUTH - (CHAR_X_MOUTH - CHAR_X_BITE) * sinf(p * PI);
       _squash = 0.10f * sinf(p * PI);
       break;
     }
 
     case PH_CHEW: {
       _biteR = APPLE_BITE_R;
-      _targetX = CHAR_X_BITE + 4.0f;
+      // back off so the missing chunk is plainly visible while it chews
+      _targetX = CHAR_X_CHEW;
       _targetY = CHAR_GROUND_Y;       // settle back down while chewing
       const float c = p * 3.0f;       // three chews
       const float ph = c - floorf(c);
@@ -246,6 +358,7 @@ void BootAnimation::update(uint32_t now) {
 
     case PH_HAPPY: {
       _biteR = APPLE_BITE_R;
+      _targetX = CHAR_X_CHEW;
       _targetY = CHAR_GROUND_Y;
       _expr = EXPR_HAPPY;
       _puff = 0.0f;
@@ -256,24 +369,60 @@ void BootAnimation::update(uint32_t now) {
       break;
     }
 
-    case PH_EXIT: {
+    case PH_INHALE_OPEN: {
       _biteR = APPLE_BITE_R;
+      _targetX = CHAR_X_INHALE;
+      _targetY = CHAR_Y_INHALE;
+      _mouth = 2.0f * easeOutCubic(p);      // yawns right open
+      _expr = EXPR_EATING;
+      _suction = p * p;
+      _squash = -0.06f * p;                 // rears up
+      break;
+    }
+
+    case PH_INHALE: {
+      _biteR = APPLE_BITE_R;
+      _targetX = CHAR_X_INHALE;
+      _targetY = CHAR_Y_INHALE;
+      _mouth = 2.0f;
+      _expr = EXPR_EATING;
+      _suction = 1.0f;
+      // the apple accelerates in, spinning and shrinking as it goes
+      // eases in, but not as sharply as a pure square: the apple should be
+      // visibly drifting before it gets yanked in
+      const float e = 0.35f * p + 0.65f * p * p;
+      _appleCX = lerpf(APPLE_HOME_X, mouthX(), e);
+      _appleCY = lerpf(APPLE_HOME_Y, mouthY(), e);
+      _appleScale = 1.0f - 0.94f * e;
+      _appleAngle = e * 5.0f * PI;
+      _squash = 0.05f * sinf(p * PI * 6.0f);   // straining
+      break;
+    }
+
+    case PH_GULP: {
+      _appleGone = true;
+      _targetX = CHAR_X_INHALE;
+      _targetY = CHAR_GROUND_Y;
+      _mouth = 2.0f * (1.0f - easeOutCubic(clampf(p * 1.7f, 0.0f, 1.0f)));
+      _expr = (p > 0.55f) ? EXPR_HAPPY : EXPR_EATING;
+      _squash = 0.17f * sinf(p * PI);          // the swallow
+      _suction = (1.0f - p) * 0.5f;
+      break;
+    }
+
+    case PH_EXIT: {
+      _appleGone = true;
       _targetX = CHAR_X_EXIT;
       _expr = EXPR_HAPPY;
+      _face = 1;                                   // turns round to walk off
       const float hop = fabsf(sinf(p * PI * 2.0f));
       _hopY = -hop * 13.0f;
       _walk = 4.0f + p * 2.0f;
       break;
     }
 
-    case PH_GLOW:
-      _biteR = APPLE_BITE_R;
-      _appleGlow = easeInOutSine(p);
-      break;
-
     case PH_FADE:
-      _biteR = APPLE_BITE_R;
-      _appleGlow = 1.0f;
+      _appleGone = true;
       _appleFade = 1.0f - easeInQuad(p);
       break;
 
@@ -283,33 +432,33 @@ void BootAnimation::update(uint32_t now) {
 
   // current/target interpolation -- this is what keeps the character motion
   // smooth even though the timeline snaps between phases
-  smoothTowards(_currentX, _targetX, 0.22f);
+  smoothTowards(_currentX, _targetX, _smoothK);
   smoothTowards(_currentY, _targetY, 0.24f);
 }
 
 void BootAnimation::draw(M5Canvas& cv) {
-  cv.fillScreen(COL_BG);
   if (_phase >= PH_DONE) return;
 
-  // apple colour: grey -> white during the flare, then down to black
-  uint16_t appleCol = mixColor(COL_APPLE, COL_WHITE, _appleGlow);
-  appleCol = mixColor(COL_BG, appleCol, _appleFade);
+  const uint16_t appleCol = mixColor(COL_BG, COL_APPLE, _appleFade);
 
-  if (_appleGlow > 0.01f && _appleFade > 0.01f) {
-    const float g = _appleGlow * _appleFade;
-    cv.fillEllipse(APPLE_ORIGIN_X + APPLE_BMP_W / 2,
-                   APPLE_ORIGIN_Y + APPLE_BODY_Y0 + APPLE_BODY_H / 2,
-                   rr(APPLE_BODY_W * 0.60f + g * 10.0f),
-                   rr(APPLE_BODY_H * 0.60f + g * 10.0f),
-                   mixColor(COL_BG, COL_APPLE_HALO, g * 0.55f));
+  if (!_appleGone) {
+    if (_phase == PH_INHALE) {
+      drawAppleXf(cv, _appleCX, _appleCY, _appleScale, _appleAngle,
+                  appleCol, _biteR);
+    } else {
+      drawApple(cv, APPLE_ORIGIN_X, APPLE_ORIGIN_Y, appleCol, _biteR);
+    }
   }
 
-  drawApple(cv, APPLE_ORIGIN_X, APPLE_ORIGIN_Y, appleCol, _biteR);
+  if (_suction > 0.02f) {
+    drawSuction(cv, mouthX(), mouthY(), (float)_face, _animT,
+                _suction * _appleFade);
+  }
 
-  // character on top -- it hides the bite while chomping, then walks off and
+  // character on top -- it hides the bite while chomping, then backs off and
   // reveals it, which is what sells the "it just took a bite" read
-  if (_currentX < 275.0f && _phase < PH_GLOW) {
+  if (_currentX < 288.0f) {
     drawCharacter(cv, _currentX, _currentY + _hopY, _squash,
-                  _mouth, _puff, _walk, _expr);
+                  _mouth, _puff, _walk, _expr, _face);
   }
 }
