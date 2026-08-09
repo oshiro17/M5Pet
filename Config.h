@@ -33,6 +33,7 @@ static const uint16_t COL_MOUTH        = rgb565(196,  40,  74);
 static const uint16_t COL_MOUTH_IN     = rgb565(232, 146,  92);  // throat/tongue
 static const uint16_t COL_SUCTION      = rgb565(150, 220, 255);  // inhale streaks
 static const uint16_t COL_STAR         = rgb565(255, 214,  64);
+static const uint16_t COL_SWIRL        = rgb565(  8,   8,  14);  // dizzy spiral
 static const uint16_t COL_MOUTH_DK     = rgb565(104,  14,  40);
 
 // ------------------------------------------------------- boot scene layout --
@@ -84,6 +85,16 @@ static const float EYE_IMU_SLIDE_X   = 15.0f;   // extra slide when the unit is 
 static const float EYE_IMU_SLIDE_Y   = 10.0f;
 static const float EYE_SIDE_SQUASH   = 0.09f;   // eyes narrow when looking sideways
 
+// Baseline lid curvature, as a fraction of the eye's half-height. EyeShape's
+// topCurve/botCurve are added to these, so a zeroed row keeps the old shape.
+static const float LID_TOP_CURVE = 0.10f;
+static const float LID_BOT_CURVE = 0.15f;
+
+// After this long with nothing moving it closes its eyes for good and drops
+// into deep sleep. Button A wakes it.
+static const bool     DEEP_SLEEP_ENABLED  = true;
+static const uint32_t DEEP_SLEEP_AFTER_MS = 180000;   // 3 minutes
+
 // Idle time before the eyes start to look sleepy.
 static const uint32_t EYE_SLEEPY_AFTER_MS = 25000;
 
@@ -98,3 +109,20 @@ static const float IMU_LOWPASS      =  0.10f;  // per-frame smoothing factor
 static const float IMU_TAKEOVER     =  0.30f;  // tilt magnitude that grabs the gaze
 static const float IMU_RELEASE      =  0.18f;  // tilt magnitude that gives it back
 static const uint32_t IMU_RELEASE_HOLD_MS = 1200;
+
+// Motion, as opposed to tilt: the frame-to-frame change in acceleration. Tilt
+// says which way up the unit is; this says whether anything just happened.
+static const float    IMU_MOTION_WAKE    = 0.05f;  // g -- any handling counts
+static const float    IMU_MOTION_STARTLE = 0.55f;  // g -- a distinct jolt
+static const uint32_t IMU_STARTLE_COOLDOWN_MS = 1500;
+
+// Spin. The gyro reports deg/s; anything above SPIN_MIN_DPS piles up in an
+// accumulator that bleeds away at SPIN_DECAY_DPS, so a few brisk twirls trip it
+// but ordinary handling never does.
+static const float    SPIN_MIN_DPS   = 100.0f;
+static const float    SPIN_DECAY_DPS =  90.0f;
+static const float    SPIN_TRIGGER   = 320.0f;
+static const float    SPIN_MAX       = 1800.0f;
+static const uint32_t DIZZY_MS       = 3500;
+static const float    SWIRL_SPEED    = 3.4f;    // rad/s the spiral turns
+static const int      SWIRL_THICK    = 2;       // brush radius; 2 = a 5px stroke

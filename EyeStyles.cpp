@@ -1,7 +1,8 @@
 #include "EyeStyles.h"
 
 // Field order, for reading the table below:
-//   w, h, topLid, botLid, lidTilt, disc, blueFrom, offsetY, hiBig, hiSmall, hiExtra
+//   w, h, topLid, botLid, lidTilt, disc, blueFrom, offsetY, hiBig, hiSmall,
+//   hiExtra, offsetX, topCurve, botCurve, lidTiltBot, innerSeal
 //
 // Every row is deliberately a little asymmetric: the right eye is usually a
 // touch wider and shorter, sits a pixel lower, and carries a slightly smaller
@@ -24,20 +25,28 @@ const EyeStyle EYE_STYLES[] = {
   { 1.24f, 1.23f, 0.00f, 0.00f, -0.06f, 0.70f, 0.60f,  0.0f, 1.05f, 1.15f, 0.0f },
   0.0f, -0.10f, 0.25f, 1.60f, 1.80f, 500 },
 
-{ "SLEEPY",
-  { 0.99f, 0.86f, 0.50f, 0.06f,  0.18f, 0.90f, 0.60f,  1.0f, 0.85f, 0.70f, 0.0f },
-  { 1.02f, 0.83f, 0.57f, 0.04f,  0.22f, 0.88f, 0.62f,  2.0f, 0.75f, 0.65f, 0.0f },
-  0.0f, 0.20f, 0.55f, 2.20f, 0.55f, 6000 },
+// The half-lidded family fills the panel: the eye stays big and the lid does
+// the closing, rather than shrinking the whole eye. Both lids are curved, the
+// two upper lids slant OPPOSITE ways, and wobble keeps them drifting so one
+// eye is always a little more open than the other.
+// Trailing EyeStyle fields here: spread, headX, headY, converge, wobble.
+{ "SLEEPY",                                   // the long-idle resting face:
+  // a tall ellipse with a nearly flat top cut across it, plus slow blinks
+  { 0.98f, 1.24f, 0.54f, 0.00f,  0.12f, 0.94f, 0.58f,  1.0f, 0.80f, 0.60f, 0.0f, 0.0f, -0.07f, 0.0f, 0.0f, 0.0f },
+  { 0.95f, 1.28f, 0.58f, 0.00f,  0.08f, 0.92f, 0.60f,  2.0f, 0.70f, 0.55f, 0.0f, 0.0f, -0.07f, 0.0f, 0.0f, 0.0f },
+  0.0f, 0.24f, 0.30f, 2.60f, 0.45f, 6000,  0.0f, 0.0f, 0.0f, 0.0f, 0.30f },
 
-{ "HALF",
-  { 1.00f, 0.94f, 0.58f, 0.10f,  0.08f, 0.95f, 0.62f,  1.0f, 0.80f, 0.80f, 0.0f },
-  { 1.02f, 0.92f, 0.62f, 0.08f,  0.10f, 0.93f, 0.64f,  2.0f, 0.72f, 0.75f, 0.0f },
-  0.0f, 0.12f, 0.45f, 2.60f, 0.70f, 6000 },
+{ "HALF",                                     // half-moon: the round bottom of
+  // the sclera left alone, one gentle arc taken off the top. Expression comes
+  // from the outer corner rising and falling, not from the lid shape.
+  { 1.16f, 1.22f, 0.50f, 0.00f,  0.26f, 1.00f, 0.58f,  1.0f, 0.95f, 0.85f, 0.0f, 0.0f,  0.06f, 0.0f, 0.0f, 0.0f },
+  { 1.12f, 1.26f, 0.56f, 0.00f,  0.18f, 0.98f, 0.60f,  2.0f, 0.85f, 0.90f, 0.0f, 0.0f,  0.10f, 0.0f, 0.0f, 0.0f },
+  0.0f, 0.05f, 0.60f, 1.60f, 1.00f, 2600,  0.0f, 0.0f, 0.0f, 0.0f, 1.00f },
 
 { "ALMOST_ASLEEP",
-  { 0.98f, 0.82f, 0.72f, 0.10f,  0.22f, 0.85f, 0.58f,  2.0f, 0.70f, 0.00f, 0.0f },
-  { 1.01f, 0.79f, 0.78f, 0.08f,  0.26f, 0.83f, 0.60f,  3.0f, 0.60f, 0.00f, 0.0f },
-  0.0f, 0.30f, 0.30f, 3.50f, 0.45f, 8000 },
+  { 1.08f, 1.16f, 0.70f, 0.12f,  0.30f, 0.90f, 0.58f,  2.0f, 0.70f, 0.00f, 0.0f, 0.0f,  0.24f,  0.12f, -0.26f },
+  { 1.05f, 1.22f, 0.76f, 0.09f, -0.20f, 0.88f, 0.60f,  3.0f, 0.60f, 0.00f, 0.0f, 0.0f,  0.30f,  0.04f,  0.20f },
+  0.0f, 0.26f, 0.35f, 3.50f, 0.45f, 8000,  0.0f, 0.0f, 0.0f, 0.0f, 0.40f },
 
 // -- fixed gaze directions (gazeRoam = 0 holds them still) -------------------
 { "LOOK_LEFT",

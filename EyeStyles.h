@@ -28,6 +28,12 @@ struct EyeShape {
   // Appended last on purpose: the existing rows list 11 values, so this stays
   // zero-initialised for them and no table row had to be rewritten.
   float offsetX;   // px nudge sideways -- lets the two eyes sit off-axis
+  // Lid shaping, all added to a sensible baseline so 0 keeps the old look.
+  float topCurve;   // + = upper lid hangs rounder in the middle
+  float botCurve;   // + = lower lid arcs up harder in the middle
+  float lidTiltBot; // -1..1 slant of the LOWER lid, independent of the upper
+  float innerSeal;  // 0..1 pulls the upper lid down onto the lower one at the
+                    // inner corner, so the two lines meet in a point there
 };
 
 // ---------------------------------------------------------------------------
@@ -52,6 +58,9 @@ struct EyeStyle {
   // right pupil goes left by the same amount. Being symmetric and derived from
   // a single value is what makes it cross-eyed rather than a squint.
   float converge;        // 0 = parallel, 1 = fully crossed, <0 = unfocused
+  // Slow drift of the lids, phase-shifted between the two eyes: the slant
+  // rocks one way then the other and each eye opens a little more in turn.
+  float wobble;          // 0 = still lids, 1 = plenty of drift
 };
 
 extern const EyeStyle EYE_STYLES[];

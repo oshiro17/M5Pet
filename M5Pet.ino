@@ -8,24 +8,26 @@
 // Board:  M5StickC Plus2   (m5stack:esp32:m5stack_stickc_plus2)
 // Libs:   M5Unified (pulls in M5GFX)
 //
-// Buttons: A = startle the eyes, B = wake it up. Either skips the intro.
+// Buttons: A or B skips the intro; neither does anything after that.
+// The eyes wake and startle from the IMU instead -- sit still and they doze off.
 // Holding the power button closes the eyes and shuts down.
 
 #include <M5Unified.h>
 #include <esp_system.h>
+#include <esp_sleep.h>
 
 #include "Config.h"
 #include "PetState.h"
 #include "BootAnimation.h"
 #include "Eyes.h"
-#include "Stars.h"
 
 static M5Canvas      canvas(&M5.Display);   // off-screen frame buffer
 static PetState      petState;
-static Stars         stars;
 static BootAnimation bootAnim;
 static Eyes          eyes;
 static uint32_t      lastFrame = 0;
+static bool          powerHeld = false;
+static bool          dozingOff = false;
 
 void setup() {
   auto cfg = M5.config();
@@ -45,8 +47,14 @@ void setup() {
 
   const uint32_t now = millis();
   petState.begin(now);
-  stars.begin();
-  bootAnim.begin(now);
+  // Waking from deep sleep goes straight back to the face; the apple story is
+  // for a cold start only.
+  if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_UNDEFINED) {
+    petState.set(AppState::EYES, now);
+    eyes.begin(now);
+  } else {
+    bootAnim.begin(now);
+  }
   lastFrame = now;
 }
 
@@ -61,14 +69,13 @@ void loop() {
   }
   lastFrame = now;
 
-  // one clear per frame; the starfield is the backdrop everything sits on
+  // one clear per frame
   canvas.fillScreen(COL_BG);
 
   switch (petState.state()) {
     case AppState::BOOT:
       if (M5.BtnA.wasPressed() || M5.BtnB.wasPressed()) bootAnim.skip();
       bootAnim.update(now);
-      stars.draw(canvas, now, bootAnim.brightness());
       bootAnim.draw(canvas);
       if (bootAnim.finished()) {
         petState.set(AppState::EYES, now);
@@ -77,14 +84,14 @@ void loop() {
       break;
 
     case AppState::EYES:
-      if (M5.BtnA.wasClicked()) eyes.surprise(now);
-      if (M5.BtnB.wasClicked()) eyes.wake(now);
-
-      // Power button: the eyes close for as long as it is held.
-      eyes.setPowerHold(M5.BtnPWR.isPressed(), now);
+      // The eyes close while the power button is held -- and also, all by
+      // themselves, once nothing has moved for long enough.
+      dozingOff = DEEP_SLEEP_ENABLED &&
+                  eyes.idleFor(now) > DEEP_SLEEP_AFTER_MS;
+      powerHeld = M5.BtnPWR.isPressed();
+      eyes.setPowerHold(powerHeld || dozingOff, now);
 
       eyes.update(now);
-      if (STARS_ON_EYES) stars.draw(canvas, now);
       eyes.draw(canvas);
       break;
   }
@@ -99,6 +106,12 @@ void loop() {
       delay(14);
     }
     M5.Display.fillScreen(COL_BG);
-    M5.Power.powerOff();
+    if (powerHeld) {
+      M5.Power.powerOff();
+    } else {
+      // drifted off on its own: sleep instead of dying, and let button A wake it
+      esp_sleep_enable_ext0_wakeup(GPIO_NUM_37, 0);
+      M5.Power.deepSleep();
+    }
   }
 }
