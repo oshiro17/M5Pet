@@ -45,6 +45,7 @@ static const AmbientPick AMBIENT[] = {
   { STYLE_LOPSIDED,    3 },
   { STYLE_CROSSEYED,   5 },
   { STYLE_DIZZY,       4 },
+  { STYLE_LEAF_WINK,   5 },
   { STYLE_HALF,        7 },
 };
 static const int AMBIENT_COUNT = (int)(sizeof(AMBIENT) / sizeof(AMBIENT[0]));

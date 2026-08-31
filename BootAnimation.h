@@ -10,6 +10,7 @@
 #include <M5Unified.h>
 #include <stdint.h>
 #include "Config.h"
+#include "Character.h"
 
 class BootAnimation {
  public:
@@ -38,9 +39,7 @@ class BootAnimation {
     PH_DONE
   };
 
-  // Character expression, drawn by drawCharacter().
-  enum Expr : uint8_t { EXPR_NORMAL = 0, EXPR_EATING, EXPR_HAPPY };
-
+  // Character expressions come from Character.h (CharExpr).
   void enterPhase(Phase p, uint32_t now);
   float phaseProgress(uint32_t now) const;   // 0..1 within the current phase
   float mouthX() const;

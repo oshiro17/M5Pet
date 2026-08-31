@@ -241,6 +241,18 @@ const EyeStyle EYE_STYLES[] = {
   { 1.04f, 0.98f, 0.22f, 0.10f,  0.16f, 1.14f, 0.58f,  2.0f, 1.15f, 0.90f, 0.55f, -3.0f },
   { 1.00f, 1.04f, 0.10f, 0.06f, -0.12f, 1.10f, 0.60f, -2.0f, 0.95f, 1.10f, 0.45f,  3.0f },
   0.0f, 0.05f, 0.35f, 1.60f, 0.80f, 2200,    2.0f, 0.0f, 0.0f,  0.55f },
+
+// -- leaf. The only row that uses innerSeal in anger, so it needs all 16 fields.
+// Both eyes taper to a point at the INNER corner instead of closing on a curve:
+// innerSeal drags the upper lid down onto the lower one there, and the two curve
+// terms round the outer end off, which is what turns an ellipse into a leaf.
+// The left one stays open with its highlight pushed down to the tapered end
+// (hiBig off, hiSmall wound right up) and the right one is a thin crescent
+// sitting lower -- an asymmetric pose, so gazeRoam is low to hold it still.
+{ "LEAF_WINK",
+  { 1.10f, 1.16f, 0.06f, 0.26f,  0.35f, 1.05f, 0.60f,  0.0f, 0.00f, 4.00f, 0.0f, 0.0f,  0.30f,  0.55f, -0.25f, 0.85f },
+  { 1.05f, 1.05f, 0.62f, 0.22f,  0.30f, 1.00f, 0.66f,  6.0f, 0.00f, 2.20f, 0.0f, 0.0f,  0.22f,  0.62f,  0.30f, 0.90f },
+  0.25f, 0.30f, 0.25f, 1.90f, 3.00f, 2200,   0.0f, 0.0f, 0.0f,  0.0f,  0.25f },
 };
 
 const int EYE_STYLE_COUNT = (int)(sizeof(EYE_STYLES) / sizeof(EYE_STYLES[0]));

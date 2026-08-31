@@ -7,6 +7,9 @@
 enum class AppState : uint8_t {
   BOOT,
   EYES,
+  MENU,   // pick a game, then a countdown; button A from EYES, button B to leave
+  GAME,   // tilt-controlled block breaker
+  SUIKA,  // watermelon game
   // reserved for later: CLOCK, WEATHER, WALKING, CHARGING, SLEEP
 };
 
@@ -49,6 +52,18 @@ inline float easeInQuad(float t) {
 // Frame-rate independent exponential smoothing towards a target.
 inline void smoothTowards(float& current, float target, float k) {
   current += (target - current) * k;
+}
+
+// Deadzone + expo, for turning a tilt reading into a control input. Below
+// `dead` the stick is dead; above it the remaining range is rescaled to 0..1
+// and raised to a power, which flattens the response near centre. That flat
+// region is the whole reason small corrections are possible on a device you are
+// holding in one hand. Shared by both games.
+inline float shapeTilt(float v, float dead, float expo) {
+  const float a = fabsf(v);
+  if (a <= dead) return 0.0f;
+  const float t = (a - dead) / (1.0f - dead);
+  return (v < 0.0f ? -1.0f : 1.0f) * powf(clampf(t, 0.0f, 1.0f), expo);
 }
 
 // Critically-ish damped spring. Overshoots a little, which is what makes the
